@@ -51,10 +51,10 @@ static esp_err_t i2c_master_init(void)
         .master.clk_speed = I2C_MASTER_FREQ_HZ,
         // .clk_flags = 0,          /*!< Optional, you can use I2C_SCLK_SRC_FLAG_* flags to choose i2c source clock here. */
     };
-    
+
     esp_err_t err = i2c_param_config(i2c_master_port, &conf);
-    
-    if (err != ESP_OK) 
+
+    if (err != ESP_OK)
     {
         return err;
     }
@@ -76,7 +76,7 @@ static void i2c_test_task(void *arg)
 
     // Here is the main loop. Periodically reads and print the parameters
     // measured from MAX30102.
-    while (1) 
+    while (1)
     {
         ESP_LOGI(TAG, "T: %lu test #: %d", task_idx, cnt++);
 
@@ -89,7 +89,7 @@ static void i2c_test_task(void *arg)
 
         ret = max30102_set_sensor_mode(MAX30102_HR_MODE, &oximeter_device);
         oximeter_device.delay_us(700000);
-    
+
         for (i = 0; i < MAX30102_BPM_SAMPLES_SIZE; i++){
             ret = max30102_get_sensor_data(MAX30102_BPM, &mess_data, &oximeter_device);
             samples[i] = mess_data.bpm32;
@@ -98,7 +98,7 @@ static void i2c_test_task(void *arg)
 
         // Once the data buffer is full, we need to get the BPM measurement.
         // In order to improve performance, the BPM mess is filtered (mean)
-        // 
+        //
         bpmAvg = 0;
         for (i = bpmAvgSize - 1; i; i--){
             bpmBuffer[i] = bpmBuffer[i-1];
@@ -116,19 +116,18 @@ static void i2c_test_task(void *arg)
         // Print information retrieved. If the connection was successful, print
         // the sensor ID and the BPM average value.
         // If the connection is NOK, print an error message.
-        if (ret == MAX30102_OK) 
+        if (ret == MAX30102_OK)
         {
             printf("***********************************\n");
             printf("T: %lu -  READING SENSOR( MAX30102 )\n", task_idx);
-            printf("***********************************\n\n");
-            printf("Print direct values:\n");
             printf("Sensor ID: %d\n", oximeter_device.chip_id);
             printf("BPM: %lu \n", bpmAvg);
             sprintf(bpm_buffer, "%lu", bpmAvg);
-            ssd1306_display_text_x3(&display_device, 0, bpm_buffer, strlen(bpm_buffer), false);
+            ssd1306_display_text_x3(&display_device, 0, "BPM", 3, false);
+            ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
 
-        } 
-        else 
+        }
+        else
         {
             ESP_LOGW(TAG, "%s: No ack, sensor not connected...skip...", esp_err_to_name(ret));
         }
@@ -143,7 +142,7 @@ static void i2c_test_task(void *arg)
 }
 
 void app_main(void)
-{   
+{
     // Config and init MAX30102 ---------------------------------------------------------------------------------
     int8_t ret;
     print_mux = xSemaphoreCreateMutex();
