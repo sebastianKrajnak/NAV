@@ -72,6 +72,7 @@ static void i2c_test_task(void *arg)
     uint32_t bpmAvg = 0;
     const uint8_t bpmAvgSize = 4;
     int cnt = 0, i;
+    char bpm_buffer[20];
 
     // Here is the main loop. Periodically reads and print the parameters
     // measured from MAX30102.
@@ -123,6 +124,9 @@ static void i2c_test_task(void *arg)
             printf("Print direct values:\n");
             printf("Sensor ID: %d\n", oximeter_device.chip_id);
             printf("BPM: %lu \n", bpmAvg);
+            sprintf(bpm_buffer, "%lu", bpmAvg);
+            ssd1306_display_text_x3(&display_device, 0, bpm_buffer, strlen(bpm_buffer), false);
+
         } 
         else 
         {
@@ -190,6 +194,7 @@ void app_main(void)
 	ssd1306_contrast(&display_device, 0xff);
     ssd1306_display_text_x3(&display_device, 0, "Hello", 5, false);
     vTaskDelay(3000 / portTICK_PERIOD_MS);
+	ssd1306_clear_screen(&display_device, false);
 
     // Read data from MAX30102 oximeter and display them on the OLED display
 
