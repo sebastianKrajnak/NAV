@@ -307,9 +307,17 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
-# SSD1306 Configuration
+# RotaryEncoder Configuration
 #
 CONFIG_GPIO_RANGE_MAX=33
+CONFIG_GPIO_OUT_A=26
+CONFIG_GPIO_OUT_B=25
+CONFIG_GPIO_SWITCH=14
+# end of RotaryEncoder Configuration
+
+#
+# SSD1306 Configuration
+#
 # CONFIG_I2C_INTERFACE is not set
 CONFIG_SPI_INTERFACE=y
 # CONFIG_SSD1306_128x32 is not set

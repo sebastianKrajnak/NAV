@@ -1,9 +1,13 @@
-/* MAX30102 example application
-
-This example shows the basic use (configuration, initialization, read) of the
-MAX30102 API
-
+/* ESP32 Heartbeat sensor using ESP-IDF framework
+    Author: Sebastian Krajnak - xkrajn05
+    Date: TODO
+    Used libraries:
+     - SSD1306 OLED Display: https://github.com/nopnop2002/esp-idf-ssd1306
+     - MAX30102 Oximeter: https://github.com/Gustbel/max30102_esp-idf
+     - KX-040 (KY-040) Rotary Encoder: https://github.com/nopnop2002/esp-idf-RotaryEncoder
+    code has been reused from example codes of linked libraries
 */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,14 +17,16 @@ MAX30102 API
 #include "esp_log.h"
 #include "driver/i2c.h"
 #include "sdkconfig.h"
+
+// Import component libraries
 #include "ssd1306.h"
 #include "font8x8_basic.h"
 #include "../components/max30102/max30102.h"
+#include "../components/RotaryEncoder/RotaryEncoder.h"
+
 
 static const char *TAG = "HeartRate sensor";
 
-//#define I2C_MASTER_SCL_IO 22
-//#define I2C_MASTER_SDA_IO 21
 #define I2C_MASTER_SCL_IO CONFIG_I2C_MASTER_SCL               /*!< gpio number for I2C master clock */
 #define I2C_MASTER_SDA_IO CONFIG_I2C_MASTER_SDA               /*!< gpio number for I2C master data  */
 
@@ -28,15 +34,27 @@ static const char *TAG = "HeartRate sensor";
 #define I2C_MASTER_TX_BUF_DISABLE 0                           /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE 0                           /*!< I2C master doesn't need buffer */
 
-
 SemaphoreHandle_t print_mux = NULL;
 
-/* The following data structures are used to interact with MAX30102 */
+// The following data structures are used to interact with MAX30102 and SSD1306
 static MAX30102_DEVICE oximeter_device;
 static MAX30102_DATA mess_data;
 static int32_t samples[MAX30102_BPM_SAMPLES_SIZE];
 static SSD1306_t display_device;
 
+/* static const uint8_t heart_icon[] =
+{ 0x03, 0xC0, 0xF0, 0x06, 0x71, 0x8C, 0x0C, 0x1B, 0x06, 0x18, 0x0E, 0x02, 0x10, 0x0C, 0x03, 0x10,
+0x04, 0x01, 0x10, 0x04, 0x01, 0x10, 0x40, 0x01, 0x10, 0x40, 0x01, 0x10, 0xC0, 0x03, 0x08, 0x88,
+0x02, 0x08, 0xB8, 0x04, 0xFF, 0x37, 0x08, 0x01, 0x30, 0x18, 0x01, 0x90, 0x30, 0x00, 0xC0, 0x60,
+0x00, 0x60, 0xC0, 0x00, 0x31, 0x80, 0x00, 0x1B, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x04, 0x00,  }; */
+
+// Rotary encoder callback function
+void rotary_callback(int event, int count, int sw){
+	if (event == 0) ESP_LOGI(TAG, "count=%d",count);
+	if (event == 1) {
+        ESP_LOGI(TAG, "sw=%d",sw);
+    }
+}
 
 // I2C master initialization
 static esp_err_t i2c_master_init(void)
@@ -49,7 +67,6 @@ static esp_err_t i2c_master_init(void)
         .scl_io_num = I2C_MASTER_SCL_IO,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = I2C_MASTER_FREQ_HZ,
-        // .clk_flags = 0,          /*!< Optional, you can use I2C_SCLK_SRC_FLAG_* flags to choose i2c source clock here. */
     };
 
     esp_err_t err = i2c_param_config(i2c_master_port, &conf);
@@ -62,22 +79,20 @@ static esp_err_t i2c_master_init(void)
     return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
 }
 
-// Test task
-static void i2c_test_task(void *arg)
-{
+// Oximeter tasK
+static void i2c_oximeter_task(void *arg){
     uint8_t ret = MAX30102_OK;
     uint32_t task_idx = (uint32_t)arg;
     uint8_t bpmBuffer[8];
-    uint8_t bpmIdx = 0;
     uint32_t bpmAvg = 0;
     const uint8_t bpmAvgSize = 4;
     int cnt = 0, i;
     char bpm_buffer[20];
 
+    initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, rotary_callback);
     // Here is the main loop. Periodically reads and print the parameters
     // measured from MAX30102.
-    while (1)
-    {
+    while (1){
         ESP_LOGI(TAG, "T: %lu test #: %d", task_idx, cnt++);
 
         // Setup the sensor operation mode for heart rate, wait for a 700 ms
@@ -94,8 +109,20 @@ static void i2c_test_task(void *arg)
             ret = max30102_get_sensor_data(MAX30102_BPM, &mess_data, &oximeter_device);
             samples[i] = mess_data.bpm32;
             oximeter_device.delay_us(20000);
+            printf("%d : %ld\n",i, samples[i]);
         }
+        if(samples[0] < 7000 && samples[5] < 7000){
+            //printf("Samples value : %ld", samples[0]);
+            ssd1306_clear_screen(&display_device, false);
+            ssd1306_display_text(&display_device, 2, "Please place", 12, false);
+            ssd1306_display_text(&display_device, 3, "your finger on", 14, false);
+            ssd1306_display_text(&display_device, 4, "the sensor...", 13, false);
 
+            xSemaphoreTake(print_mux, portMAX_DELAY);
+
+            //vTaskDelay(3000 / portTICK_PERIOD_MS);
+        }
+        if(samples[0] >= 7000 && samples[5] >= 7000){
         // Once the data buffer is full, we need to get the BPM measurement.
         // In order to improve performance, the BPM mess is filtered (mean)
         //
@@ -103,7 +130,6 @@ static void i2c_test_task(void *arg)
         for (i = bpmAvgSize - 1; i; i--){
             bpmBuffer[i] = bpmBuffer[i-1];
         }
-
         bpmBuffer[0] = max30102_get_bpm(samples);
         for (i = 0; i < bpmAvgSize; i++){
             bpmAvg += bpmBuffer[i];
@@ -116,30 +142,32 @@ static void i2c_test_task(void *arg)
         // Print information retrieved. If the connection was successful, print
         // the sensor ID and the BPM average value.
         // If the connection is NOK, print an error message.
-        if (ret == MAX30102_OK)
-        {
+        //printf(" Sample 0: %ld, Sample 5: %ld\n", samples[0], samples[5]);
+        if (ret == MAX30102_OK){
+            //printf("Samples value : %ld", samples[0]);
             printf("***********************************\n");
             printf("T: %lu -  READING SENSOR( MAX30102 )\n", task_idx);
             printf("Sensor ID: %d\n", oximeter_device.chip_id);
             printf("BPM: %lu \n", bpmAvg);
             sprintf(bpm_buffer, "%lu", bpmAvg);
+            ssd1306_clear_screen(&display_device, false);
             ssd1306_display_text_x3(&display_device, 0, "BPM", 3, false);
             ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
-
+            //vTaskDelay(3000 / portTICK_PERIOD_MS);
         }
-        else
-        {
+        else{
             ESP_LOGW(TAG, "%s: No ack, sensor not connected...skip...", esp_err_to_name(ret));
         }
-
+        }
         // Give the semaphore taken and wait for the next read.
         xSemaphoreGive(print_mux);
         oximeter_device.delay_us(1000000);
+        
     }
-
     vSemaphoreDelete(print_mux);
     vTaskDelete(NULL);
 }
+
 
 void app_main(void)
 {
@@ -150,7 +178,7 @@ void app_main(void)
     // Before access to the MAX30102, we need to setup the device handler
     // by assign the platform specific functions which brings access
     // to the communication port. These functions are implemented in
-    // API/driver/MAX30102_ESP32C3.c file.
+    // components/max30102/MAX30102_ESP32C3.c file.
     oximeter_device.read = esp32c3_read_max30102;
     oximeter_device.write = esp32c3_write_max30102;
     oximeter_device.delay_us = esp32c3_delay_us_max30102;
@@ -159,8 +187,7 @@ void app_main(void)
     ESP_ERROR_CHECK(i2c_master_init());
 
     // After I2C initialization, BME280 initialization could be done.
-    if (MAX30102_E_DEV_NOT_FOUND == max30102_init(&oximeter_device))
-    {
+    if (MAX30102_E_DEV_NOT_FOUND == max30102_init(&oximeter_device)){
         ESP_LOGW(TAG, "MAX30102 sensor is not connected.");
         while(1);
     }
@@ -183,8 +210,6 @@ void app_main(void)
     oximeter_device.delay_us(40000);
 
     // Config and setup SSD1306 OLED display ------------------------------------------------------------------------------
-	int center, top;
-
     // CONFIG_SPI_INTERFACE
 	spi_master_init(&display_device, CONFIG_MOSI_GPIO, CONFIG_SCLK_GPIO, CONFIG_CS_GPIO, CONFIG_DC_GPIO, CONFIG_RESET_GPIO);
     // CONFIG SSD1306 DISPLAY
@@ -196,6 +221,6 @@ void app_main(void)
 	ssd1306_clear_screen(&display_device, false);
 
     // Read data from MAX30102 oximeter and display them on the OLED display
-
-    xTaskCreate(i2c_test_task, "i2c_test_task_0", 1024 * 2, (void *)0, 10, NULL);
+    xTaskCreate(i2c_oximeter_task, "i2c_oximeter_task_0", 1024 * 2, (void *)0, 10, NULL);
 }
+
