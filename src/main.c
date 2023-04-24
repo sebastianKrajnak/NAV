@@ -5,7 +5,8 @@
      - SSD1306 OLED Display: https://github.com/nopnop2002/esp-idf-ssd1306
      - MAX30102 Oximeter: https://github.com/Gustbel/max30102_esp-idf
      - KX-040 (KY-040) Rotary Encoder: https://github.com/nopnop2002/esp-idf-RotaryEncoder
-    code has been reused from example codes of linked libraries
+    code has been reused from example codes of linked libraries. These librabries are ass and I would rather use arduino
+    framework with proper libraries next time.
 */
 
 #include <stdio.h>
@@ -24,7 +25,6 @@
 #include "../components/max30102/max30102.h"
 #include "../components/RotaryEncoder/RotaryEncoder.h"
 
-
 static const char *TAG = "HeartRate sensor";
 
 #define I2C_MASTER_SCL_IO CONFIG_I2C_MASTER_SCL               /*!< gpio number for I2C master clock */
@@ -42,17 +42,41 @@ static MAX30102_DATA mess_data;
 static int32_t samples[MAX30102_BPM_SAMPLES_SIZE];
 static SSD1306_t display_device;
 
+int selected_option = 0;
+bool is_selected = false;
+char menu_options[3][10] = {"Text", "Image", "None"};
+
 /* static const uint8_t heart_icon[] =
 { 0x03, 0xC0, 0xF0, 0x06, 0x71, 0x8C, 0x0C, 0x1B, 0x06, 0x18, 0x0E, 0x02, 0x10, 0x0C, 0x03, 0x10,
 0x04, 0x01, 0x10, 0x04, 0x01, 0x10, 0x40, 0x01, 0x10, 0x40, 0x01, 0x10, 0xC0, 0x03, 0x08, 0x88,
 0x02, 0x08, 0xB8, 0x04, 0xFF, 0x37, 0x08, 0x01, 0x30, 0x18, 0x01, 0x90, 0x30, 0x00, 0xC0, 0x60,
 0x00, 0x60, 0xC0, 0x00, 0x31, 0x80, 0x00, 0x1B, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x04, 0x00,  }; */
 
-// Rotary encoder callback function
-void rotary_callback(int event, int count, int sw){
-	if (event == 0) ESP_LOGI(TAG, "count=%d",count);
-	if (event == 1) {
-        ESP_LOGI(TAG, "sw=%d",sw);
+
+// Function to display menu options
+void update_display() {
+    // Clear display
+    ssd1306_clear_screen(&display_device, false);
+
+    ssd1306_display_text(&display_device, 0, "Select BPM UI",13, false );
+    // Print currently selected option
+    ssd1306_display_text(&display_device, selected_option+1, menu_options[selected_option], 5, true);
+
+    // Print other options
+    for (int i = 0; i < 3; i++) {
+        if (i != selected_option) {
+            ssd1306_display_text(&display_device, i+1, menu_options[i], 5, false);
+        }
+    }
+}
+
+void scroll_options() {
+    // Scroll menu options down
+    selected_option += 1;
+    if (selected_option < 0) {
+        selected_option = 3 - 1;
+    } else if (selected_option >= 3) {
+        selected_option = 0;
     }
 }
 
@@ -79,7 +103,8 @@ static esp_err_t i2c_master_init(void)
     return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
 }
 
-// Oximeter tasK
+
+// Oximeter task
 static void i2c_oximeter_task(void *arg){
     uint8_t ret = MAX30102_OK;
     uint32_t task_idx = (uint32_t)arg;
@@ -89,7 +114,41 @@ static void i2c_oximeter_task(void *arg){
     int cnt = 0, i;
     char bpm_buffer[20];
 
-    initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, rotary_callback);
+    // MENU SELECTION ------------------------------------------------------------------------------------------------
+    // It would be better to have a second task for menu selection and I tried and kept failing
+    //so I just gave up and stuffed it into one
+
+    // Update display with initial menu options
+    update_display();
+
+    while (!is_selected) {
+        // Read rotary encoder value
+        int count; // Current count value
+		int sw; // Current switch value
+		int interrupt; // Interrupt occurrence count
+		int event = readRotaryEncoder(&count, &sw, &interrupt);
+
+        if (event == 0) {
+            // Encoder value changed, scroll menu options
+            printf("Count is %d\n", count);
+            scroll_options();
+            update_display();
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        }
+        if (event == 1) {
+            // Encoder button pressed, select current option
+            printf("Selected option is %d\n", selected_option);
+            is_selected = !is_selected;
+        }
+
+        // Delay before checking encoder again
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+
+    ssd1306_clear_screen(&display_device, true);
+
+    // BPM MEASUREMENT -----------------------------------------------------------------------------------------------
+    //initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, rotary_callback);
     // Here is the main loop. Periodically reads and print the parameters
     // measured from MAX30102.
     while (1){
@@ -109,10 +168,8 @@ static void i2c_oximeter_task(void *arg){
             ret = max30102_get_sensor_data(MAX30102_BPM, &mess_data, &oximeter_device);
             samples[i] = mess_data.bpm32;
             oximeter_device.delay_us(20000);
-            printf("%d : %ld\n",i, samples[i]);
         }
         if(samples[0] < 7000 && samples[5] < 7000){
-            //printf("Samples value : %ld", samples[0]);
             ssd1306_clear_screen(&display_device, false);
             ssd1306_display_text(&display_device, 2, "Please place", 12, false);
             ssd1306_display_text(&display_device, 3, "your finger on", 14, false);
@@ -120,12 +177,11 @@ static void i2c_oximeter_task(void *arg){
 
             xSemaphoreTake(print_mux, portMAX_DELAY);
 
-            //vTaskDelay(3000 / portTICK_PERIOD_MS);
+            vTaskDelay(3000 / portTICK_PERIOD_MS);
         }
         if(samples[0] >= 7000 && samples[5] >= 7000){
         // Once the data buffer is full, we need to get the BPM measurement.
         // In order to improve performance, the BPM mess is filtered (mean)
-        //
         bpmAvg = 0;
         for (i = bpmAvgSize - 1; i; i--){
             bpmBuffer[i] = bpmBuffer[i-1];
@@ -139,21 +195,33 @@ static void i2c_oximeter_task(void *arg){
 
         xSemaphoreTake(print_mux, portMAX_DELAY);
 
+        // BPM DISPLAY -------------------------------------------------------------------------------------------------
         // Print information retrieved. If the connection was successful, print
         // the sensor ID and the BPM average value.
         // If the connection is NOK, print an error message.
-        //printf(" Sample 0: %ld, Sample 5: %ld\n", samples[0], samples[5]);
         if (ret == MAX30102_OK){
-            //printf("Samples value : %ld", samples[0]);
             printf("***********************************\n");
             printf("T: %lu -  READING SENSOR( MAX30102 )\n", task_idx);
             printf("Sensor ID: %d\n", oximeter_device.chip_id);
             printf("BPM: %lu \n", bpmAvg);
             sprintf(bpm_buffer, "%lu", bpmAvg);
             ssd1306_clear_screen(&display_device, false);
-            ssd1306_display_text_x3(&display_device, 0, "BPM", 3, false);
-            ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
-            //vTaskDelay(3000 / portTICK_PERIOD_MS);
+            switch (selected_option) {
+                case 0:
+                    ssd1306_display_text_x3(&display_device, 0, "BPM", 3, false);
+                    ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
+                    break;
+                case 1:
+                    ssd1306_display_text_x3(&display_device, 0, "IMG", 3, false);
+                    ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
+                    break;
+                case 2:
+                    ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
+                    break;
+                default:
+                    break;
+            }
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
         else{
             ESP_LOGW(TAG, "%s: No ack, sensor not connected...skip...", esp_err_to_name(ret));
@@ -162,7 +230,7 @@ static void i2c_oximeter_task(void *arg){
         // Give the semaphore taken and wait for the next read.
         xSemaphoreGive(print_mux);
         oximeter_device.delay_us(1000000);
-        
+
     }
     vSemaphoreDelete(print_mux);
     vTaskDelete(NULL);
@@ -209,10 +277,11 @@ void app_main(void)
     ret = max30102_set_led_amplitude(0x0F, &oximeter_device);
     oximeter_device.delay_us(40000);
 
-    // Config and setup SSD1306 OLED display ------------------------------------------------------------------------------
-    // CONFIG_SPI_INTERFACE
+    // Config and initiate SSD1306 OLED display ------------------------------------------------------------------------------
+    // Initiate spi interface
 	spi_master_init(&display_device, CONFIG_MOSI_GPIO, CONFIG_SCLK_GPIO, CONFIG_CS_GPIO, CONFIG_DC_GPIO, CONFIG_RESET_GPIO);
-    // CONFIG SSD1306 DISPLAY
+
+    // Initiate and config SSD1306 DISPLAY
 	ssd1306_init(&display_device, 128, 64);
 	ssd1306_clear_screen(&display_device, false);
 	ssd1306_contrast(&display_device, 0xff);
@@ -220,7 +289,9 @@ void app_main(void)
     vTaskDelay(3000 / portTICK_PERIOD_MS);
 	ssd1306_clear_screen(&display_device, false);
 
+    // Initiate rotary encoder
+    initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, NULL);
+
     // Read data from MAX30102 oximeter and display them on the OLED display
     xTaskCreate(i2c_oximeter_task, "i2c_oximeter_task_0", 1024 * 2, (void *)0, 10, NULL);
 }
-
