@@ -1,5 +1,8 @@
 {
     "files.associations": {
-        "esp_log.h": "c"
-    }
+        "esp_log.h": "c",
+        "font8x8_basic.h": "c",
+        "max30102_esp32c3.h": "c"
+    },
+    "cmake.configureOnOpen": true
 }
