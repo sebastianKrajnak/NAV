@@ -6,7 +6,7 @@
      - MAX30102 Oximeter: https://github.com/Gustbel/max30102_esp-idf
      - KX-040 (KY-040) Rotary Encoder: https://github.com/nopnop2002/esp-idf-RotaryEncoder
     code has been reused from example codes of linked libraries. These librabries are ass and I would rather use arduino
-    framework with proper libraries next time.
+    framework with proper libraries next time. BPM values that the MAX30102 library returns are hella off scale.
 */
 
 #include <stdio.h>
@@ -34,6 +34,8 @@ static const char *TAG = "HeartRate sensor";
 #define I2C_MASTER_TX_BUF_DISABLE 0                           /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE 0                           /*!< I2C master doesn't need buffer */
 
+#define MENU_OPTIONS 3
+
 SemaphoreHandle_t print_mux = NULL;
 
 // The following data structures are used to interact with MAX30102 and SSD1306
@@ -46,11 +48,12 @@ int selected_option = 0;
 bool is_selected = false;
 char menu_options[3][10] = {"Text", "Image", "None"};
 
-/* static const uint8_t heart_icon[] =
-{ 0x03, 0xC0, 0xF0, 0x06, 0x71, 0x8C, 0x0C, 0x1B, 0x06, 0x18, 0x0E, 0x02, 0x10, 0x0C, 0x03, 0x10,
-0x04, 0x01, 0x10, 0x04, 0x01, 0x10, 0x40, 0x01, 0x10, 0x40, 0x01, 0x10, 0xC0, 0x03, 0x08, 0x88,
-0x02, 0x08, 0xB8, 0x04, 0xFF, 0x37, 0x08, 0x01, 0x30, 0x18, 0x01, 0x90, 0x30, 0x00, 0xC0, 0x60,
-0x00, 0x60, 0xC0, 0x00, 0x31, 0x80, 0x00, 0x1B, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x04, 0x00,  }; */
+static uint8_t heart_icon[63] = {
+    0x03, 0xC0, 0xF0, 0x06, 0x71, 0x8C, 0x0C, 0x1B, 0x06, 0x18, 0x0E, 0x02, 0x10, 0x0C, 0x03, 0x10,
+    0x04, 0x01, 0x10, 0x04, 0x01, 0x10, 0x40, 0x01, 0x10, 0x40, 0x01, 0x10, 0xC0, 0x03, 0x08, 0x88,
+    0x02, 0x08, 0xB8, 0x04, 0xFF, 0x37, 0x08, 0x01, 0x30, 0x18, 0x01, 0x90, 0x30, 0x00, 0xC0, 0x60,
+    0x00, 0x60, 0xC0, 0x00, 0x31, 0x80, 0x00, 0x1B, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x04, 0x00
+};
 
 
 // Function to display menu options
@@ -60,22 +63,24 @@ void update_display() {
 
     ssd1306_display_text(&display_device, 0, "Select BPM UI",13, false );
     // Print currently selected option
-    ssd1306_display_text(&display_device, selected_option+1, menu_options[selected_option], 5, true);
+    ssd1306_display_text(&display_device, selected_option+1, menu_options[selected_option], 10, true);
 
     // Print other options
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < MENU_OPTIONS; i++) {
         if (i != selected_option) {
-            ssd1306_display_text(&display_device, i+1, menu_options[i], 5, false);
+            ssd1306_display_text(&display_device, i+1, menu_options[i], 10, false);
         }
     }
 }
 
-void scroll_options() {
+void scroll_options(int val) {
     // Scroll menu options down
-    selected_option += 1;
+    if (val >= 0) selected_option++;
+    else if ( val < 0) selected_option--;
+
     if (selected_option < 0) {
-        selected_option = 3 - 1;
-    } else if (selected_option >= 3) {
+        selected_option = MENU_OPTIONS - 1;
+    } else if (selected_option >= MENU_OPTIONS) {
         selected_option = 0;
     }
 }
@@ -127,11 +132,14 @@ static void i2c_oximeter_task(void *arg){
 		int sw; // Current switch value
 		int interrupt; // Interrupt occurrence count
 		int event = readRotaryEncoder(&count, &sw, &interrupt);
-
+        int val1, val2;
         if (event == 0) {
+            val1 = count;
+            val2 = count;
             // Encoder value changed, scroll menu options
             printf("Count is %d\n", count);
-            scroll_options();
+            printf("vAL1: %d, val2: %d\n ", val1, val2);
+            scroll_options(count);
             update_display();
             vTaskDelay(100 / portTICK_PERIOD_MS);
         }
@@ -169,6 +177,7 @@ static void i2c_oximeter_task(void *arg){
             samples[i] = mess_data.bpm32;
             oximeter_device.delay_us(20000);
         }
+
         if(samples[0] < 7000 && samples[5] < 7000){
             ssd1306_clear_screen(&display_device, false);
             ssd1306_display_text(&display_device, 2, "Please place", 12, false);
@@ -179,53 +188,54 @@ static void i2c_oximeter_task(void *arg){
 
             vTaskDelay(3000 / portTICK_PERIOD_MS);
         }
+
         if(samples[0] >= 7000 && samples[5] >= 7000){
-        // Once the data buffer is full, we need to get the BPM measurement.
-        // In order to improve performance, the BPM mess is filtered (mean)
-        bpmAvg = 0;
-        for (i = bpmAvgSize - 1; i; i--){
-            bpmBuffer[i] = bpmBuffer[i-1];
-        }
-        bpmBuffer[0] = max30102_get_bpm(samples);
-        for (i = 0; i < bpmAvgSize; i++){
-            bpmAvg += bpmBuffer[i];
-        }
-
-        bpmAvg /= bpmAvgSize;
-
-        xSemaphoreTake(print_mux, portMAX_DELAY);
-
-        // BPM DISPLAY -------------------------------------------------------------------------------------------------
-        // Print information retrieved. If the connection was successful, print
-        // the sensor ID and the BPM average value.
-        // If the connection is NOK, print an error message.
-        if (ret == MAX30102_OK){
-            printf("***********************************\n");
-            printf("T: %lu -  READING SENSOR( MAX30102 )\n", task_idx);
-            printf("Sensor ID: %d\n", oximeter_device.chip_id);
-            printf("BPM: %lu \n", bpmAvg);
-            sprintf(bpm_buffer, "%lu", bpmAvg);
-            ssd1306_clear_screen(&display_device, false);
-            switch (selected_option) {
-                case 0:
-                    ssd1306_display_text_x3(&display_device, 0, "BPM", 3, false);
-                    ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
-                    break;
-                case 1:
-                    ssd1306_display_text_x3(&display_device, 0, "IMG", 3, false);
-                    ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
-                    break;
-                case 2:
-                    ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
-                    break;
-                default:
-                    break;
+            // Once the data buffer is full, we need to get the BPM measurement.
+            // In order to improve performance, the BPM mess is filtered (mean)
+            bpmAvg = 0;
+            for (i = bpmAvgSize - 1; i; i--){
+                bpmBuffer[i] = bpmBuffer[i-1];
             }
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-        else{
-            ESP_LOGW(TAG, "%s: No ack, sensor not connected...skip...", esp_err_to_name(ret));
-        }
+            bpmBuffer[0] = max30102_get_bpm(samples);
+            for (i = 0; i < bpmAvgSize; i++){
+                bpmAvg += bpmBuffer[i];
+            }
+
+            bpmAvg /= bpmAvgSize;
+
+            xSemaphoreTake(print_mux, portMAX_DELAY);
+
+            // BPM DISPLAY -------------------------------------------------------------------------------------------------
+            // Print information retrieved. If the connection was successful, print
+            // the sensor ID and the BPM average value.
+            // If the connection is NOK, print an error message.
+            if (ret == MAX30102_OK){
+                printf("***********************************\n");
+                printf("T: %lu -  READING SENSOR( MAX30102 )\n", task_idx);
+                printf("Sensor ID: %d\n", oximeter_device.chip_id);
+                printf("BPM: %lu \n", bpmAvg);
+                sprintf(bpm_buffer, "%lu", bpmAvg);
+                ssd1306_clear_screen(&display_device, false);
+                switch (selected_option) {
+                    case 0:
+                        ssd1306_display_text_x3(&display_device, 0, "BPM", 3, false);
+                        ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
+                        break;
+                    case 1:
+                        ssd1306_bitmaps(&display_device, 0, 0, heart_icon, 24, 21, false);
+                        ssd1306_display_text_x3(&display_device, 4, bpm_buffer, 3, false);
+                        break;
+                    case 2:
+                        ssd1306_display_text_x3(&display_device, 3, bpm_buffer, 3, false);
+                        break;
+                    default:
+                        break;
+                }
+                vTaskDelay(500 / portTICK_PERIOD_MS);
+            }
+            else{
+                ESP_LOGW(TAG, "%s: No ack, sensor not connected...skip...", esp_err_to_name(ret));
+            }
         }
         // Give the semaphore taken and wait for the next read.
         xSemaphoreGive(print_mux);
