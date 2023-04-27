@@ -110,7 +110,7 @@ static esp_err_t i2c_master_init(void)
 
 
 // Oximeter task
-static void i2c_oximeter_task(void *arg){
+static void oximeter_task(void *arg){
     uint8_t ret = MAX30102_OK;
     uint32_t task_idx = (uint32_t)arg;
     uint8_t bpmBuffer[8];
@@ -156,7 +156,6 @@ static void i2c_oximeter_task(void *arg){
     ssd1306_clear_screen(&display_device, true);
 
     // BPM MEASUREMENT -----------------------------------------------------------------------------------------------
-    //initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, rotary_callback);
     // Here is the main loop. Periodically reads and print the parameters
     // measured from MAX30102.
     while (1){
@@ -186,7 +185,7 @@ static void i2c_oximeter_task(void *arg){
 
             xSemaphoreTake(print_mux, portMAX_DELAY);
 
-            vTaskDelay(3000 / portTICK_PERIOD_MS);
+            vTaskDelay(500 / portTICK_PERIOD_MS);
         }
 
         if(samples[0] >= 7000 && samples[5] >= 7000){
@@ -206,8 +205,7 @@ static void i2c_oximeter_task(void *arg){
             xSemaphoreTake(print_mux, portMAX_DELAY);
 
             // BPM DISPLAY -------------------------------------------------------------------------------------------------
-            // Print information retrieved. If the connection was successful, print
-            // the sensor ID and the BPM average value.
+            // If the connection was successful, print retrieved information .
             // If the connection is NOK, print an error message.
             if (ret == MAX30102_OK){
                 printf("***********************************\n");
@@ -253,24 +251,20 @@ void app_main(void)
     int8_t ret;
     print_mux = xSemaphoreCreateMutex();
 
-    // Before access to the MAX30102, we need to setup the device handler
-    // by assign the platform specific functions which brings access
-    // to the communication port. These functions are implemented in
-    // components/max30102/MAX30102_ESP32C3.c file.
+    // Setup MAX30102 device handler
     oximeter_device.read = esp32c3_read_max30102;
     oximeter_device.write = esp32c3_write_max30102;
     oximeter_device.delay_us = esp32c3_delay_us_max30102;
 
-    // The first step is to initialize the I2C peripheral as usual
+    // Initialize I2C peripheral
     ESP_ERROR_CHECK(i2c_master_init());
 
-    // After I2C initialization, BME280 initialization could be done.
     if (MAX30102_E_DEV_NOT_FOUND == max30102_init(&oximeter_device)){
         ESP_LOGW(TAG, "MAX30102 sensor is not connected.");
         while(1);
     }
 
-    // Setup some adquisition parameters
+    // Setup some aquisition parameters
     // - ADC range for 16384 counts.
     // - 50 samples per second.
     // - 411 microseconds pulse width for LEDs.
@@ -288,7 +282,7 @@ void app_main(void)
     oximeter_device.delay_us(40000);
 
     // Config and initiate SSD1306 OLED display ------------------------------------------------------------------------------
-    // Initiate spi interface
+    // Initiate SPI interface
 	spi_master_init(&display_device, CONFIG_MOSI_GPIO, CONFIG_SCLK_GPIO, CONFIG_CS_GPIO, CONFIG_DC_GPIO, CONFIG_RESET_GPIO);
 
     // Initiate and config SSD1306 DISPLAY
@@ -303,5 +297,5 @@ void app_main(void)
     initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, NULL);
 
     // Read data from MAX30102 oximeter and display them on the OLED display
-    xTaskCreate(i2c_oximeter_task, "i2c_oximeter_task_0", 1024 * 2, (void *)0, 10, NULL);
+    xTaskCreate(oximeter_task, "i2c_oximeter_task_0", 1024 * 2, (void *)0, 10, NULL);
 }
