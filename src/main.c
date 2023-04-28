@@ -1,12 +1,13 @@
 /* ESP32 Heartbeat sensor using ESP-IDF framework
     Author: Sebastian Krajnak - xkrajn05
-    Date: TODO
+    Date: April 2023
     Used libraries:
      - SSD1306 OLED Display: https://github.com/nopnop2002/esp-idf-ssd1306
      - MAX30102 Oximeter: https://github.com/Gustbel/max30102_esp-idf
      - KX-040 (KY-040) Rotary Encoder: https://github.com/nopnop2002/esp-idf-RotaryEncoder
-    code has been reused from example codes of linked libraries. These librabries are ass and I would rather use arduino
-    framework with proper libraries next time. BPM values that the MAX30102 library returns are hella off scale.
+    some parts of the code were reused from example codes of linked libraries. These librabries are ass and I would
+    rather use arduino framework with proper libraries next time.
+     BPM values that the MAX30102 library returns are hella off scale.
 */
 
 #include <stdio.h>
@@ -132,13 +133,9 @@ static void oximeter_task(void *arg){
 		int sw; // Current switch value
 		int interrupt; // Interrupt occurrence count
 		int event = readRotaryEncoder(&count, &sw, &interrupt);
-        int val1, val2;
+
         if (event == 0) {
-            val1 = count;
-            val2 = count;
             // Encoder value changed, scroll menu options
-            printf("Count is %d\n", count);
-            printf("vAL1: %d, val2: %d\n ", val1, val2);
             scroll_options(count);
             update_display();
             vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -247,7 +244,7 @@ static void oximeter_task(void *arg){
 
 void app_main(void)
 {
-    // Config and init MAX30102 ---------------------------------------------------------------------------------
+    // Initialize and conifg MAX30102 ---------------------------------------------------------------------------------
     int8_t ret;
     print_mux = xSemaphoreCreateMutex();
 
@@ -285,7 +282,7 @@ void app_main(void)
     // Initiate SPI interface
 	spi_master_init(&display_device, CONFIG_MOSI_GPIO, CONFIG_SCLK_GPIO, CONFIG_CS_GPIO, CONFIG_DC_GPIO, CONFIG_RESET_GPIO);
 
-    // Initiate and config SSD1306 DISPLAY
+    // Initialize and config SSD1306 DISPLAY
 	ssd1306_init(&display_device, 128, 64);
 	ssd1306_clear_screen(&display_device, false);
 	ssd1306_contrast(&display_device, 0xff);
@@ -293,9 +290,9 @@ void app_main(void)
     vTaskDelay(3000 / portTICK_PERIOD_MS);
 	ssd1306_clear_screen(&display_device, false);
 
-    // Initiate rotary encoder
+    // Initialize rotary encoder
     initRotaryEncoder(CONFIG_GPIO_OUT_A, CONFIG_GPIO_OUT_B, CONFIG_GPIO_SWITCH, NULL);
 
-    // Read data from MAX30102 oximeter and display them on the OLED display
+    // Read data from oximeter and display them on the OLED display via the selected UI
     xTaskCreate(oximeter_task, "i2c_oximeter_task_0", 1024 * 2, (void *)0, 10, NULL);
 }
